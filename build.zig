@@ -8,11 +8,20 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const zul = b.dependency("zul", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
-    _ = b.addModule("liquorice", .{ .root_source_file = b.path("src/root.zig"), .imports = &.{.{ .name = "httpz", .module = httpz.module("httpz") }} });
+    const liquoriceModule = b.addModule("liquorice", .{
+        .root_source_file = b.path("src/root.zig"),
+        .imports = &.{ .{ .name = "httpz", .module = httpz.module("httpz") }, .{ .name = "zul", .module = zul.module("zul") } },
+        .target = target,
+        .optimize = optimize,
+    });
 
     const lib_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/root.zig"),
+        .root_module = liquoriceModule,
         .target = target,
         .optimize = optimize,
     });
