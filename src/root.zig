@@ -1,6 +1,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const auth = @import("auth.zig");
+const schd = @import("scheduler.zig");
 
 pub const Config = struct {
     port: u16 = 8080,
@@ -82,8 +83,8 @@ pub const LiquoriceClient = struct {
         return oc;
     }
 
-    pub fn start(self: *LiquoriceClient) !void {
-        try self._server.listen();
+    pub fn start(_: *LiquoriceClient) !void {
+        try schd.test_epoll();
     }
 
     pub fn deinit(self: *LiquoriceClient) void {
