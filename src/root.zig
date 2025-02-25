@@ -56,6 +56,7 @@ pub const LiquoriceClient = struct {
 
         // create our liquorice client
         var lq = try allocator.create(InnerClient);
+        lq._rwlock = .{};
         lq._allocator = allocator;
         lq._client = client;
         lq.appToken = appToken;
@@ -76,7 +77,7 @@ pub const LiquoriceClient = struct {
 
         // set up our routes, but don't start listening yet
         var router = oc._server.router(.{});
-        router.get("/callback", callback, .{});
+        router.get("/callback", InnerClient.callback, .{});
 
         return oc;
     }
@@ -93,22 +94,25 @@ pub const LiquoriceClient = struct {
     }
 };
 
-fn callback(handler: *InnerClient, _: *httpz.Request, res: *httpz.Response) !void {
-    res.content_type = .JSON;
-    const body_text =
-        \\{{"status": "500", "message": "{s}"}}
-    ;
-    try std.fmt.format(res.writer(), body_text, .{handler.appToken.accessToken});
-}
-
 const InnerClient = struct {
     appToken: *auth.AppToken,
     _allocator: std.mem.Allocator,
     _client: std.http.Client,
+    _rwlock: std.Thread.RwLock,
 
     pub fn deinit(self: *InnerClient) void {
         self._allocator.free(self.appToken.accessToken);
         self._allocator.destroy(self.appToken);
         self._allocator.destroy(self);
+    }
+
+    fn callback(handler: *InnerClient, _: *httpz.Request, res: *httpz.Response) !void {
+        res.content_type = .JSON;
+        const body_text =
+            \\{{"status": "500", "message": "{s}"}}
+        ;
+        handler._rwlock.lockShared();
+        defer handler._rwlock.unlockShared();
+        try std.fmt.format(res.writer(), body_text, .{handler.appToken.accessToken});
     }
 };
