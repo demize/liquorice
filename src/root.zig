@@ -2,6 +2,7 @@ const std = @import("std");
 const httpz = @import("httpz");
 const auth = @import("auth.zig");
 const schd = @import("scheduler.zig");
+const zul = @import("zul");
 
 pub const Config = struct {
     port: u16 = 8080,
@@ -18,7 +19,9 @@ pub const LiquoriceClient = struct {
     _allocator: std.mem.Allocator,
     _lq: *InnerClient,
     _server: *httpz.Server(*InnerClient),
-    _oauthTokenUrl: *const []u8,
+    _serverThread: std.Thread,
+    _oauthTokenUrl: []u8,
+    _schd: *schd.LiquoriceScheduler,
 
     /// Initialize a liquorice client.
     /// This won't start the client; see `LiquoriceClient.start()` for that.
@@ -26,12 +29,9 @@ pub const LiquoriceClient = struct {
     /// Will always request a new access token from Twitch for the given client ID/secret.
     pub fn init(allocator: std.mem.Allocator, config: Config) !*LiquoriceClient {
         // set up an HTTP client to get our tokens
-        var client: std.http.Client = .{ .allocator = allocator };
+        var client: *std.http.Client = try allocator.create(std.http.Client);
+        client.* = .{ .allocator = allocator };
         try client.initDefaultProxies(allocator);
-
-        var appToken = try allocator.create(auth.AppToken);
-        appToken.clientId = config.clientId;
-        appToken.clientSecret = config.clientSecret;
 
         // perform the twitch authentication
         const oauthTokenUrl = try std.fmt.allocPrint(allocator, "{s}/oauth2/token", .{config.idBase});
@@ -49,11 +49,17 @@ pub const LiquoriceClient = struct {
         try authReq.wait();
 
         const authRes = try authReq.reader().readAllAlloc(allocator, 256);
+        defer allocator.free(authRes);
         const parsedRes = try std.json.parseFromSlice(struct { access_token: []const u8, expires_in: u32, token_type: []const u8 }, allocator, authRes, .{});
         defer parsedRes.deinit();
 
-        appToken.accessToken = try allocator.dupe(u8, parsedRes.value.access_token);
-        appToken.expiresIn = parsedRes.value.expires_in;
+        const appToken: auth.AppToken = .{
+            .clientId = config.clientId,
+            .clientSecret = config.clientSecret,
+            .accessToken = try allocator.dupe(u8, parsedRes.value.access_token),
+            .expiresIn = parsedRes.value.expires_in,
+            .obtained = zul.DateTime.now(),
+        };
 
         // create our liquorice client
         var lq = try allocator.create(InnerClient);
@@ -74,36 +80,49 @@ pub const LiquoriceClient = struct {
         oc._allocator = allocator;
         oc._server = server;
         oc._lq = lq;
-        oc._oauthTokenUrl = &oauthTokenUrl;
+        oc._oauthTokenUrl = oauthTokenUrl;
 
         // set up our routes, but don't start listening yet
-        var router = oc._server.router(.{});
+        var router = try oc._server.router(.{});
         router.get("/callback", InnerClient.callback, .{});
 
         return oc;
     }
 
-    pub fn start(_: *LiquoriceClient) !void {
-        try schd.test_epoll();
+    pub fn update_token(_: *LiquoriceClient) u32 {
+        std.debug.print("refresh\n", .{});
+        return 1;
+    }
+
+    pub fn start(self: *LiquoriceClient) !void {
+        self._schd = try schd.LiquoriceScheduler.init(self._allocator);
+        try self._schd.start();
+        try self._schd.register_app_token(self, update_token);
+        self._serverThread = try self._server.listenInNewThread();
     }
 
     pub fn deinit(self: *LiquoriceClient) void {
         self._server.stop();
+        self._serverThread.join();
         self._server.deinit();
-        self._lq._client.deinit();
-        self._allocator.destroy(self._oauthTokenUrl);
+        self._allocator.destroy(self._server);
+        self._lq.deinit();
+        self._allocator.free(self._oauthTokenUrl);
+        self._schd.deinit();
+        self._allocator.destroy(self);
     }
 };
 
 const InnerClient = struct {
-    appToken: *auth.AppToken,
+    appToken: auth.AppToken,
     _allocator: std.mem.Allocator,
-    _client: std.http.Client,
+    _client: *std.http.Client,
     _rwlock: std.Thread.RwLock,
 
     pub fn deinit(self: *InnerClient) void {
+        self._client.deinit();
+        self._allocator.destroy(self._client);
         self._allocator.free(self.appToken.accessToken);
-        self._allocator.destroy(self.appToken);
         self._allocator.destroy(self);
     }
 

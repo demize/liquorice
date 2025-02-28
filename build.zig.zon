@@ -1,14 +1,14 @@
 .{
-    .name = "liquorice",
+    .name = .liquorice,
     .version = "0.0.1",
     .dependencies = .{
         .httpz = .{
-            .url = "git+https://github.com/karlseguin/http.zig?ref=master#f16b296a2772be97e48a57259c004aa6584a02c6",
-            .hash = "1220e524a72c18aa2585f326902066fda544c5df0cf6618eea885b04041204dc5d7f",
+            .url = "git+https://github.com/karlseguin/http.zig?ref=master#652748bda080d673f016517edd6bd6132afefee8",
+            .hash = "httpz-0.0.0-PNVzrLqsBgBqtJP2Cn89yA48LuP_TZk7Of2neX8KWh12",
         },
         .zul = .{
-            .url = "git+https://github.com/karlseguin/zul?ref=master#e48d01c578b95c1a15957ba819e4094bff982277",
-            .hash = "122033def62ec92564cc4936cb870f44d9e6e8aece152bf72be564b1cac542638c76",
+            .url = "git+https://github.com/karlseguin/zul?ref=master#d9142c73aedc5698beba58b3fbf2bcfe69864778",
+            .hash = "zul-0.0.0-1oDot0BCBwA9cUo5OOrPs5NGmvoM7sk1ztfbdfL7mh4P",
         },
     },
     .paths = .{
@@ -18,4 +18,5 @@
         "LICENSE",
         "README.md",
     },
+    .fingerprint = 0x6c504ff41503f747, // changing this has security and trust implications
 }
