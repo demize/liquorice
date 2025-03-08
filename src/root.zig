@@ -1,6 +1,7 @@
 const std = @import("std");
 const httpz = @import("httpz");
 const auth = @import("auth.zig");
+pub const bot = @import("bot.zig");
 const schd = @import("scheduler.zig");
 const zul = @import("zul");
 
@@ -26,12 +27,13 @@ pub const LiquoriceClient = struct {
     _oauthTokenUrl: []u8,
     _schd: *schd.LiquoriceScheduler,
     _config: Config,
+    _bot: bot.LiquoriceBot,
 
     /// Initialize a liquorice client.
     /// This won't start the client; see `LiquoriceClient.start()` for that.
     ///
     /// Will always request a new access token from Twitch for the given client ID/secret.
-    pub fn init(allocator: std.mem.Allocator, config: Config) !*LiquoriceClient {
+    pub fn init(allocator: std.mem.Allocator, config: Config, lqb: bot.LiquoriceBot) !*LiquoriceClient {
         // set up an HTTP client to get our tokens
         var client: *std.http.Client = try allocator.create(std.http.Client);
         client.* = .{ .allocator = allocator };
@@ -87,6 +89,7 @@ pub const LiquoriceClient = struct {
         oc._lq = lq;
         oc._oauthTokenUrl = oauthTokenUrl;
         oc._config = config;
+        oc._bot = lqb;
 
         // set up our routes, but don't start listening yet
         var router = try oc._server.router(.{});
@@ -121,9 +124,7 @@ pub const LiquoriceClient = struct {
         self._lq.appToken.accessToken = try self._allocator.dupe(u8, parsedRes.value.access_token);
         self._lq.appToken.expiresAt = expiresAt;
 
-        const stdout = std.io.getStdOut();
-        try std.zon.stringify.serialize(self._lq.appToken, .{}, stdout.writer());
-        _ = try stdout.writer().write("\n");
+        self._bot.updateTokenFn(self._bot.ptr, .{ .App = self._lq.appToken });
     }
 
     pub fn update_token(self: *LiquoriceClient) u32 {
