@@ -4,6 +4,9 @@ const auth = @import("auth.zig");
 const schd = @import("scheduler.zig");
 const zul = @import("zul");
 
+pub const TokenType = auth.TokenType;
+pub const LiquoriceToken = auth.LiquoriceToken;
+
 pub const Config = struct {
     port: u16 = 8080,
     listenAddr: ?[]const u8,
@@ -22,6 +25,7 @@ pub const LiquoriceClient = struct {
     _serverThread: std.Thread,
     _oauthTokenUrl: []u8,
     _schd: *schd.LiquoriceScheduler,
+    _config: Config,
 
     /// Initialize a liquorice client.
     /// This won't start the client; see `LiquoriceClient.start()` for that.
@@ -53,12 +57,13 @@ pub const LiquoriceClient = struct {
         const parsedRes = try std.json.parseFromSlice(struct { access_token: []const u8, expires_in: u32, token_type: []const u8 }, allocator, authRes, .{});
         defer parsedRes.deinit();
 
+        const expiresAt = try zul.DateTime.now().add(parsedRes.value.expires_in, .seconds);
+
         const appToken: auth.AppToken = .{
             .clientId = config.clientId,
             .clientSecret = config.clientSecret,
             .accessToken = try allocator.dupe(u8, parsedRes.value.access_token),
-            .expiresIn = parsedRes.value.expires_in,
-            .obtained = zul.DateTime.now(),
+            .expiresAt = expiresAt,
         };
 
         // create our liquorice client
@@ -81,6 +86,7 @@ pub const LiquoriceClient = struct {
         oc._server = server;
         oc._lq = lq;
         oc._oauthTokenUrl = oauthTokenUrl;
+        oc._config = config;
 
         // set up our routes, but don't start listening yet
         var router = try oc._server.router(.{});
@@ -89,9 +95,54 @@ pub const LiquoriceClient = struct {
         return oc;
     }
 
-    pub fn update_token(_: *LiquoriceClient) u32 {
-        std.debug.print("refresh\n", .{});
-        return 1;
+    pub fn _refresh_appToken(self: *LiquoriceClient) !void {
+        // perform the twitch authentication
+        const twitchOauthUri = try std.Uri.parse(self._oauthTokenUrl);
+        const authBody = try std.fmt.allocPrint(self._allocator, "client_id={s}&client_secret={s}&grant_type=client_credentials", .{ self._config.clientId, self._config.clientSecret });
+        defer self._allocator.free(authBody);
+        var header_buffer: [2048]u8 = undefined;
+        var authReq = try self._lq._client.open(.POST, twitchOauthUri, .{ .headers = .{ .content_type = .{ .override = "application/x-www-form-urlencoded" } }, .server_header_buffer = &header_buffer });
+        defer authReq.deinit();
+
+        authReq.transfer_encoding = .{ .content_length = authBody.len };
+        try authReq.send();
+        try authReq.writeAll(authBody);
+        try authReq.finish();
+        try authReq.wait();
+
+        const authRes = try authReq.reader().readAllAlloc(self._allocator, 256);
+        defer self._allocator.free(authRes);
+        const parsedRes = try std.json.parseFromSlice(struct { access_token: []const u8, expires_in: u32, token_type: []const u8 }, self._allocator, authRes, .{});
+        defer parsedRes.deinit();
+
+        const expiresAt = try zul.DateTime.now().add(parsedRes.value.expires_in, .seconds);
+
+        self._allocator.free(self._lq.appToken.accessToken);
+        self._lq.appToken.accessToken = try self._allocator.dupe(u8, parsedRes.value.access_token);
+        self._lq.appToken.expiresAt = expiresAt;
+
+        const stdout = std.io.getStdOut();
+        try std.zon.stringify.serialize(self._lq.appToken, .{}, stdout.writer());
+        _ = try stdout.writer().write("\n");
+    }
+
+    pub fn update_token(self: *LiquoriceClient) u32 {
+        // request a new one if there's less than two hours until expiry
+        // (by adding 2 hours to "now")
+        const now = zul.DateTime.now().add(2, .hours) catch {
+            // the only error we can expect here is if the result is outside the Julian period
+            // we can expect that to never be the case
+            unreachable;
+        };
+        if (now.order(self._lq.appToken.expiresAt) == .gt) {
+            self._refresh_appToken() catch |err| {
+                std.debug.panic("fatal error while authenticating with Twitch: {any}\n", .{err});
+            };
+            std.debug.print("refresh: expires at {s}\n", .{self._lq.appToken.expiresAt});
+        } else {
+            std.debug.print("no refresh\n", .{});
+        }
+        return 30;
     }
 
     pub fn start(self: *LiquoriceClient) !void {
