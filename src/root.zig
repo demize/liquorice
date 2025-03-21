@@ -28,6 +28,7 @@ pub const LiquoriceClient = struct {
     _schd: *schd.LiquoriceScheduler,
     _config: Config,
     _bot: bot.LiquoriceBot,
+    _bot_mtx: std.Thread.Mutex,
 
     /// Initialize a liquorice client.
     /// This won't start the client; see `LiquoriceClient.start()` for that.
@@ -90,6 +91,7 @@ pub const LiquoriceClient = struct {
         oc._oauthTokenUrl = oauthTokenUrl;
         oc._config = config;
         oc._bot = lqb;
+        oc._bot_mut = .{};
 
         // set up our routes, but don't start listening yet
         var router = try oc._server.router(.{});
@@ -124,6 +126,8 @@ pub const LiquoriceClient = struct {
         self._lq.appToken.accessToken = try self._allocator.dupe(u8, parsedRes.value.access_token);
         self._lq.appToken.expiresAt = expiresAt;
 
+        self._bot_mtx.lock();
+        defer self._bot_mtx.unlock();
         self._bot.updateTokenFn(self._bot.ptr, .{ .App = self._lq.appToken });
     }
 
