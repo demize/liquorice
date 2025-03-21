@@ -1,0 +1,18 @@
+name: mirror to github
+
+on:
+    workflow_dispatch
+
+concurrency:
+    group: mirror-to-github
+
+jobs:
+    mirror-to-github:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: demize/repository-mirror-action@3e4644c32d66edfda20efe2cf768208ed3bfecd4 # v1
+              env:
+                SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+              with:
+                source-repo: "git@git.msvcrt.zip:liquorice.git"
+                destination-repo: "git@github.com:demize/liquorice.git"
