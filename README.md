@@ -2,6 +2,9 @@
 
 A twitch client library for zig designed around webhooks.
 
+The canonical source for this is on my [gitolite](https://gitweb.msvcrt.zip/gitweb.cgi?p=AniseBot.git) but it's mirrored to Github as well.
+This uses a janky action I modified and a janky post-receive hook I wrote. If it doesn't work, let me know, and I'll try to fix it (but I'll hopefully already know).
+
 ## Why `liquorice`?
 
 Because "twiz" is a terrible name for a library, but a good inspiration for a decent name for a library.
